@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YUME NO LAP TIME - Reading 9C</title>
+
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+<style>
+body {margin:0;padding:0;font-family:Arial,sans-serif;background:linear-gradient(135deg,#ff0000,#000);color:white;overflow-x:hidden;}
+.container{max-width:900px;margin:auto;padding:20px;}
+h1,h2,h3{font-family:'Arial Black',sans-serif;font-style:italic;}
+button{padding:8px 15px;margin:5px;background:yellow;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-style:italic;}
+button:hover{background:orange;}
+input,select{padding:8px;margin:5px;border-radius:5px;border:none;width:90%;}
+section{margin-bottom:20px;padding:15px;background:rgba(0,0,0,0.6);border-radius:10px;}
+#chat-box{height:200px;overflow-y:scroll;border:1px solid white;padding:10px;background:#111;}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;background:#222;padding:10px;border-radius:10px;}
+header h1{color:yellow;}
+.activity-btn{background:#ffcc00;color:#000;font-weight:bold;margin:5px;}
+.activity-btn:hover{background:#ff9900;color:#fff;}
+#opening{position:fixed;top:0;left:0;width:100%;height:100%;background:black;display:flex;justify-content:center;align-items:center;flex-direction:column;color:#ffcc00;font-size:3em;z-index:999;}
+#opening span{opacity:0;animation:fadeInOut 1s forwards;}
+@keyframes fadeInOut{0%{opacity:0;}50%{opacity:1;}100%{opacity:0;}}
+</style>
+</head>
+<body>
+
+<div id="opening">
+  <span id="ready">READY</span>
+  <span id="set" style="display:none;">SET</span>
+  <span id="go" style="display:none;">GO!</span>
+</div>
+
+<div class="container" id="login-page" style="display:none;">
+<h1>YUME NO LAP TIME - Login Reading 9C</h1>
+<p style="color:#ffcc00;">*Akun Admin: **Admin 1 / admin1** & **Admin 2 / admin2**</p>
+<input type="email" id="email" placeholder="Email">
+<input type="password" id="password" placeholder="Password">
+<select id="role">
+<option value="anggota">Anggota</option>
+<option value="admin">Admin</option>
+</select>
+<button onclick="login()">Login</button>
+<p id="login-msg" style="color:yellow;"></p>
+</div>
+
+<div class="container" id="dashboard-page" style="display:none;">
+<header>
+<h1>Dashboard - Reading 9C</h1>
+<button onclick="logout()">Logout</button>
+</header>
+
+<section class="profile">
+<h2>Profil Kamu</h2>
+<img src="https://via.placeholder.com/100" alt="Avatar" id="avatar" width="100">
+<input type="file" onchange="changeAvatar(event)">
+<p>Email: <span id="profile-name"></span></p>
+<input type="password" placeholder="Ganti Password" id="new-password">
+<button onclick="updateProfile()">Update Profil</button>
+</section>
+
+<section class="activities">
+<h2>Aktivitas Literasi</h2>
+<button class="activity-btn" onclick="lapMembaca()">Lap Membaca</button>
+<button class="activity-btn" onclick="pitStop()">Pit Stop Inspirasi</button>
+<button class="activity-btn" onclick="readingRaceWeek()">Reading Race Week</button>
+<button class="activity-btn" onclick="finishLine()">Finish Line of Dreams</button>
+</section>
+
+<section class="chat">
+<h2>Reading 9C Chat</h2>
+<div id="chat-box"></div>
+<input type="text" id="chat-msg" placeholder="Ketik pesan...">
+<button onclick="sendMessage()">Kirim</button>
+</section>
+</div>
+
+<div class="container" id="admin-page" style="display:none;">
+<header>
+<h1>Admin Panel - Reading 9C</h1>
+<button onclick="logout()">Logout</button>
+</header>
+
+<section>
+<h2>Kelola Buku</h2>
+<input type="text" id="new-book" placeholder="Judul buku baru">
+<button onclick="addBook()">Tambah Buku</button>
+<ul id="books-list"></ul>
+</section>
+
+<section>
+<h2>Kelola Anggota</h2>
+<input type="email" id="new-member-email" placeholder="Email anggota">
+<input type="password" id="new-member-pw" placeholder="Password anggota">
+<button onclick="addMember()">Tambah Anggota</button>
+<ul id="members-list"></ul>
+</section>
+</div>
+
+<script>
+// =========================================================
+// ===== 1. FIREBASE CONFIG & INISIALISASI (WAJIB DIGANTI) =====
+// =========================================================
+const firebaseConfig = {
+    // 🔥 GANTI DENGAN KUNCI API PROYEK FIREBASE ANDA 🔥
+    apiKey: "GANTI_DENGAN_API_KEY_ANDA",
+    authDomain: "GANTI_DENGAN_PROJECT_ID.firebaseapp.com",
+    projectId: "GANTI_DENGAN_PROJECT_ID",
+    storageBucket: "GANTI_DENGAN_PROJECT_ID.appspot.com",
+    messagingSenderId: "GANTI_DENGAN_SENDER_ID",
+    appId: "GANTI_DENGAN_APP_ID"
+};
+
+// Inisialisasi Firebase App
+firebase.initializeApp(firebaseConfig);
+
+// Inisialisasi Service Firebase
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// =========================================================
+// ===== 2. SETUP AKUN ADMIN AWAL =====
+// =========================================================
+const adminUsers = [
+    { email: 'Admin 1', password: 'admin1' },
+    { email: 'Admin 2', password: 'admin2' }
+];
+
+/**
+ * Memastikan dua akun admin telah dibuat di Authentication dan memiliki peran 'admin' di Firestore.
+ */
+async function setupInitialAdmins() {
+    console.log("Memeriksa dan menyiapkan akun admin...");
+    for (const admin of adminUsers) {
+        try {
+            // Coba login/cek apakah user sudah ada
+            const userCredential = await auth.signInWithEmailAndPassword(admin.email, admin.password);
+            const uid = userCredential.user.uid;
+
+            // Pastikan role tersimpan di Firestore
+            const userDoc = await db.collection('users').doc(uid).get();
+            if (!userDoc.exists || userDoc.data().role !== 'admin') {
+                await db.collection('users').doc(uid).set({ role: 'admin', email: admin.email });
+                console.log(`Role admin untuk ${admin.email} diperbarui.`);
+            }
+            
+            await auth.signOut(); // Logout setelah cek/update
+            
+        } catch (error) {
+            if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                // Jika user belum ada, buat baru
+                try {
+                    const newUserCredential = await auth.createUserWithEmailAndPassword(admin.email, admin.password);
+                    await db.collection('users').doc(newUserCredential.user.uid).set({ role: 'admin', email: admin.email });
+                    console.log(`Admin baru ${admin.email} berhasil dibuat.`);
+                    await auth.signOut();
+                } catch (e) {
+                    // Hanya tampilkan error yang kritis
+                    if (e.code !== 'auth/email-already-in-use') {
+                        console.error(`Gagal membuat ${admin.email}:`, e.message);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================
+// ===== 3. FUNGSI AUTHENTIKASI UTAMA =====
+// =========================================================
+
+/**
+ * Proses Login pengguna.
+ */
+function login(){
+    const email=document.getElementById('email').value;
+    const password=document.getElementById('password').value;
+    const role=document.getElementById('role').value;
+    const loginMsg = document.getElementById('login-msg');
+    loginMsg.innerText = 'Logging in...';
+
+    auth.signInWithEmailAndPassword(email,password)
+    .then(userCredential=>{
+        const uid=userCredential.user.uid;
+        // Ambil data peran dari Firestore
+        db.collection('users').doc(uid).get().then(doc=>{
+            if(doc.exists && doc.data().role===role){
+                // Role sesuai
+                loginMsg.innerText = 'Login Berhasil!';
+                document.getElementById('login-page').style.display='none';
+                if(role==='admin') showAdminPage();
+                else showDashboard();
+            }else{
+                // Role tidak sesuai
+                loginMsg.innerText = "Role tidak sesuai! Pilih Admin atau Anggota yang benar.";
+                auth.signOut();
+            }
+        }).catch(e => {
+             loginMsg.innerText = "Error mengambil data peran: " + e.message;
+             auth.signOut();
+        });
+    })
+    .catch(error=>loginMsg.innerText=error.message);
+}
+
+/**
+ * Proses Logout pengguna.
+ */
+function logout(){
+    auth.signOut();
+    document.getElementById('login-page').style.display='block';
+    document.getElementById('dashboard-page').style.display='none';
+    document.getElementById('admin-page').style.display='none';
+}
+
+// =========================================================
+// ===== 4. FUNGSI DASHBOARD & ADMIN VIEW =====
+// =========================================================
+
+/**
+ * Menampilkan Dashboard Anggota dan memuat Chat.
+ */
+function showDashboard(){
+    document.getElementById('dashboard-page').style.display='block';
+    const profile = document.getElementById('profile-name');
+    auth.onAuthStateChanged(u=>{if(u) profile.innerText=u.email;});
+
+    // Load chat realtime
+    db.collection('chat').orderBy('time', 'desc').limit(50).onSnapshot(snapshot=>{
+        const chatBox=document.getElementById('chat-box');
+        // Kosongkan dan tambahkan pesan baru
+        chatBox.innerHTML='';
+        snapshot.docChanges().reverse().forEach(change => {
+            if (change.type === "added") {
+                const doc = change.doc;
+                const p=document.createElement('p');
+                p.textContent=`${doc.data().user.split('@')[0]}: ${doc.data().msg}`; 
+                chatBox.appendChild(p);
+            }
+        });
+        chatBox.scrollTop=chatBox.scrollHeight;
+    });
+}
+
+/**
+ * Menampilkan Halaman Admin dan memuat daftar Buku/Anggota.
+ */
+function showAdminPage(){
+    document.getElementById('admin-page').style.display='block';
+    renderBooks();
+    renderMembers();
+}
+
+// =========================================================
+// ===== 5. FUNGSI ADMIN (Firestore & Auth) =====
+// =========================================================
+
+function addBook(){
+    const title=document.getElementById('new-book').value.trim();
+    if(title===""){alert("Masukkan judul buku!");return;}
+    
+    db.collection('books').add({
+        title, 
+        addedBy: auth.currentUser.email, 
+        date: firebase.firestore.FieldValue.serverTimestamp()
+    })
+    .then(() => {
+        document.getElementById('new-book').value="";
+        renderBooks();
+    })
+    .catch(e => alert("Gagal menambahkan buku: " + e.message));
+}
+
+function renderBooks(){
+    const list=document.getElementById('books-list');
+    list.innerHTML="<li>Memuat...</li>";
+    db.collection('books').orderBy('date','desc').get().then(snapshot=>{
+        list.innerHTML = "";
+        if(snapshot.empty) {
+            list.innerHTML = "<li>Tidak ada buku.</li>";
+            return;
+        }
+        snapshot.forEach(doc=>{
+            const li=document.createElement('li');
+            li.textContent=doc.data().title;
+            list.appendChild(li);
+        });
+    });
+}
+
+function addMember(){
+    const email=document.getElementById('new-member-email').value.trim();
+    const pw=document.getElementById('new-member-pw').value.trim();
+    if(email==="" || pw===""){alert("Masukkan email & password anggota!");return;}
+
+    // Admin membuat akun (role: anggota)
+    auth.createUserWithEmailAndPassword(email,pw)
+    .then(userCredential=>{
+        // Simpan peran di Firestore
+        db.collection('users').doc(userCredential.user.uid).set({role:'anggota',email:email});
+        
+        document.getElementById('new-member-email').value="";
+        document.getElementById('new-member-pw').value="";
+        renderMembers();
+    })
+    .catch(e=>alert("Gagal menambahkan anggota: " + e.message));
+}
+
+function renderMembers(){
+    const list=document.getElementById('members-list');
+    list.innerHTML="<li>Memuat...</li>";
+    db.collection('users').get().then(snapshot=>{
+        list.innerHTML = "";
+        snapshot.forEach(doc=>{
+            const li=document.createElement('li');
+            li.textContent=doc.data().role.toUpperCase()+" - "+doc.data().email;
+            list.appendChild(li);
+        });
+    });
+}
+
+// =========================================================
+// ===== 6. FUNGSI UMUM LAINNYA =====
+// =========================================================
+
+function sendMessage(){
+    const msgInput=document.getElementById('chat-msg');
+    const user=auth.currentUser;
+    
+    if(msgInput.value.trim()!=="" && user){
+        db.collection('chat').add({
+            user:user.email,
+            msg:msgInput.value,
+            time:firebase.firestore.FieldValue.serverTimestamp()
+        });
+        msgInput.value="";
+    }
+}
+
+function updateProfile(){
+    const pw=document.getElementById('new-password').value;
+    const user=auth.currentUser;
+    if(pw){
+        user.updatePassword(pw)
+        .then(()=>alert("Password berhasil diupdate"))
+        .catch(e=>alert("Gagal update password: " + e.message));
+    }
+}
+
+// Dummy functions
+function changeAvatar(event){document.getElementById('avatar').src=URL.createObjectURL(event.target.files[0]);}
+function lapMembaca(){ alert("Fitur Lap Membaca"); }
+function pitStop(){ alert("Fitur Pit Stop Inspirasi"); }
+function readingRaceWeek(){ alert("Fitur Reading Race Week"); }
+function finishLine(){ alert("Fitur Finish Line of Dreams"); }
+
+// =========================================================
+// ===== 7. INISIALISASI TAMPILAN AWAL =====
+// =========================================================
+window.onload = () => {
+    // 1. Setup Admin berjalan pertama kali
+    setupInitialAdmins(); 
+
+    // 2. Efek Pembukaan F1
+    const ready = document.getElementById('ready');
+    const set = document.getElementById('set');
+    const go = document.getElementById('go');
+    
+    setTimeout(() => { ready.style.display = 'none'; set.style.display = 'block'; }, 1000);
+    setTimeout(() => { set.style.display = 'none'; go.style.display = 'block'; }, 2000);
+    setTimeout(() => {
+        document.getElementById('opening').style.display = 'none';
+        
+        // Cek user yang sudah login dan redirect
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                 db.collection('users').doc(user.uid).get().then(doc => {
+                    if (doc.exists && doc.data().role === 'admin') showAdminPage();
+                    else showDashboard();
+                 }).catch(() => showDashboard()); // Default ke dashboard jika gagal ambil role
+            } else {
+                document.getElementById('login-page').style.display = 'block';
+            }
+        });
+    }, 3000);
+};
+</script>
+</body>
+</html>
